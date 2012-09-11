@@ -8,39 +8,42 @@
         <script src="../../CubicVR.js" type="text/javascript">
         </script>
         <script id="vs" type="x-shader/x-vertex">
-            uniform float myTimer;
-        
-            void main(void) 
-            {
-              vertexTexCoordOut = cubicvr_texCoord();
-              
-              vec4 myPos = cubicvr_transform();
-              
-              myPos.x += sin(myTimer);
-              myPos.z += cos(myTimer);
-              
-              gl_Position = matrixProjection * matrixModelView * myPos;
+            uniform float left;
+            uniform float top;
+            uniform float width;
+            uniform float height;
+            varying float linearCorrection;
+            varying vec2 screenPos;
+            varying float radius;
 
-              vertexNormalOut = matrixNormal * cubicvr_normal();
+            void main() {
+                vertexTexCoordOut = cubicvr_texCoord();
+                gl_Position = matrixProjection * matrixModelView * cubicvr_transform();
+                vertexNormalOut = matrixNormal * cubicvr_normal();
 
-              cubicvr_lighting();  
+                gl_PointSize = 20.0;
+
+                // Convert position to window coordinates
+                vec2 halfsize = vec2(width * 0.5, height * 0.5);
+                vec2 topLeft = vec2(top, left);
+                linearCorrection = 1.0 / gl_Position.w;
+                //screenPos = topLeft + halfsize + ((gl_Position.xy * gl_Position.w) * halfsize);
+                screenPos = (topLeft + halfsize + ((gl_Position.xy / gl_Position.w) * halfsize)) * gl_Position.w;
+
+                radius = gl_PointSize * 0.5;
             }
         </script>
         <script id="fs" type="x-shader/x-fragment">
-            uniform float myTimer;
+            varying float linearCorrection;
+            varying vec2 screenPos;
+            varying float radius;
 
-            void main(void) 
-            {  
-              vec2 texCoord = cubicvr_texCoord()+vec2(myTimer/4.0,myTimer/4.0);
-
-              vec4 color = cubicvr_color(texCoord);
-              vec3 normal = cubicvr_normal(texCoord);
-              color = cubicvr_environment(color,normal,texCoord);
-              
-              color.rgb *= vec3(vertexPositionOut.x+abs(sin(myTimer)),vertexPositionOut.y+abs(cos(myTimer)),vertexPositionOut.z+abs(sin(myTimer)));
-              
-              color = cubicvr_lighting(color,normal,texCoord);
-              gl_FragColor = clamp(color,0.0,1.0);
+            void main() {
+                vec2 sp = screenPos * linearCorrection;
+                if( distance(gl_FragCoord.xy, sp) > radius ) discard;
+                //if( distance(gl_FragCoord.xy, sp) > radius ) discard;
+                //gl_FragData[0] = vec4(cubicvr_color(cubicvr_texCoord()).rgb * clamp(distance(gl_FragCoord.xy, sp) * 0.1, 0.0, 1.0), 1.0);
+                gl_FragData[0] = cubicvr_color(cubicvr_texCoord());
             }
         </script>
         <script type='text/javascript'>
@@ -56,16 +59,14 @@
                 };
                
                 // Create a camera, position at 1,1,1 and target at 0,0,0
-                var camera = new CubicVR.Camera(canvas.width,canvas.height,60);
+                var scene = new CubicVR.Scene(canvas.width,canvas.height,60);
+                var camera = scene.camera;
                 camera.position = [1,1,1];
                 camera.lookat([0,0,0]);
 
                 var myShader = new CubicVR.CustomShader({
                     vertex: "#vs",
-                    fragment: "#fs",
-                    init: function(shader) {    
-                        shader.myTimer.set(0); // not needed, just here for example purposes
-                    }
+                    fragment: "#fs"
                 });
 
                 // Add a box to mesh, size 1.0, apply material and UV parameters
@@ -87,17 +88,26 @@
                     compile: true
                 });
 
+                var boxObject = new CubicVR.SceneObject(boxMesh);
+
+                scene.bind(boxObject);
+
                 // Add our camera to the window resize list
-                CubicVR.addResizeable(camera);
+                CubicVR.addResizeable(scene);
 
                 // Start our main drawing loop, it provides a timer and the gl context as parameters
                 CubicVR.MainLoop(function(timer, gl) {
                     if (myShader.ready()) { // shader var bindings updated automatically when update() not set.  ready() ensures successful compile of shader.
-                        myShader.myTimer.value = timer.getSeconds();
+                        myShader.left.value = 0;
+                        myShader.top.value = 0;
+                        myShader.width.value = canvas.width;
+                        myShader.height.value = canvas.height;
                     } 
                     // Render our object using the camera, pass identity matrix to represent no transform
-                    CubicVR.renderObject(boxMesh, camera, CubicVR.IdentityMatrix);
+                    scene.render();
                 });
+
+                mvc = new CubicVR.MouseViewController(canvas, scene.camera);
             }
         </script>
     </head>
